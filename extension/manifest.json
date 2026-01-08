@@ -1,0 +1,25 @@
+{
+  "name": "NYT Crossword Answer Helper",
+  "description": "Shows the answer for a New York Times crossword clue when you click the hint.",
+  "version": "0.1.0",
+  "manifest_version": 3,
+  "host_permissions": [
+    "https://nytcrosswordanswers.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.nytimes.com/crossword/*",
+        "https://www.nytimes.com/crosswords/*"
+      ],
+      "js": [
+        "content-script.js"
+      ],
+      "run_at": "document_end"
+    }
+  ]
+}
+
