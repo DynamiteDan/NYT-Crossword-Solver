@@ -1,7 +1,8 @@
 /* global chrome */
 (() => {
-  const CLUE_ITEM_SELECTOR = '[data-test="clue"], li[class*="Clue-li"]';
-  const CLUE_LABEL_SELECTOR = '[data-test="clue-label"], .Clue-label';
+  const CLUE_ITEM_SELECTOR = '.xwd__clue--li, [data-test="clue"], li[class*="Clue-li"]';
+  const CLUE_LABEL_SELECTOR = '.xwd__clue--label, [data-test="clue-label"], .Clue-label';
+  const CLUE_LIST_TITLE_SELECTOR = '.xwd__clue-list--title';
   const LISTENER_FLAG = 'nytcsListener';
   const STYLE_ID = 'nytcs-styles';
   const EXTERNAL_HOST = 'https://nytcrosswordanswers.org';
@@ -70,7 +71,7 @@
   }
 
   function derivePuzzleDate() {
-    const embeddedDate = window.gameData?.puzzleData?.date;
+    const embeddedDate = extractGameDataDate();
     if (embeddedDate) {
       const parsed = parseIsoDate(embeddedDate);
       if (parsed) {
@@ -87,6 +88,30 @@
       };
     }
 
+    return null;
+  }
+
+  function extractGameDataDate() {
+    const ATTR = 'data-nytcs-puzzle-date';
+    try {
+      const script = document.createElement('script');
+      script.textContent = `
+        try {
+          const d = window.gameData && window.gameData.puzzleData && window.gameData.puzzleData.date;
+          if (d) document.documentElement.setAttribute('${ATTR}', d);
+        } catch (_) {}
+      `;
+      document.documentElement.appendChild(script);
+      script.remove();
+
+      const value = document.documentElement.getAttribute(ATTR);
+      if (value) {
+        document.documentElement.removeAttribute(ATTR);
+        return value;
+      }
+    } catch (_) {
+      // Inline script injection may be blocked by CSP; fall through to URL parsing.
+    }
     return null;
   }
 
@@ -196,6 +221,7 @@
       banner.style.boxShadow = '0 2px 8px rgba(0,0,0,0.25)';
 
       const container =
+        document.querySelector('.xwd__clue-list--wrapper') ||
         document.querySelector('[data-test="clue-list"]') ||
         document.querySelector('[data-test="clue-list-container"]') ||
         document.body;
@@ -280,13 +306,42 @@
       return sanitized;
     }
 
-    const direction =
+    const direction = deriveDirection(clueElement);
+    const suffix = direction === 'down' ? 'D' : 'A';
+    return `${sanitized}${suffix}`;
+  }
+
+  function deriveDirection(clueElement) {
+    const explicit =
       clueElement?.getAttribute('data-direction') ||
       clueElement?.dataset?.direction ||
       clueElement?.closest('[data-direction]')?.getAttribute('data-direction');
+    if (explicit) {
+      return explicit.toLowerCase();
+    }
 
-    const suffix = direction?.toLowerCase().startsWith('d') ? 'D' : 'A';
-    return `${sanitized}${suffix}`;
+    const listWrapper = clueElement?.closest('.xwd__clue-list--wrapper, [class*="ClueList"]');
+    if (listWrapper) {
+      const title = listWrapper.querySelector(CLUE_LIST_TITLE_SELECTOR);
+      if (title) {
+        const text = title.textContent.trim().toUpperCase();
+        if (text.includes('DOWN')) return 'down';
+        if (text.includes('ACROSS')) return 'across';
+      }
+    }
+
+    let sibling = clueElement?.closest('ol, ul');
+    while (sibling) {
+      const prev = sibling.previousElementSibling;
+      if (prev) {
+        const txt = prev.textContent.trim().toUpperCase();
+        if (txt.includes('DOWN')) return 'down';
+        if (txt.includes('ACROSS')) return 'across';
+      }
+      sibling = sibling.parentElement;
+    }
+
+    return 'across';
   }
 
   function showAnswerPanel({ clueKey, rawAnswer, clueTitle }) {
@@ -361,10 +416,7 @@
     }
     targets.push(clueElement);
 
-    const handler = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-
+    const handler = () => {
       const clueTitle =
         clueElement.textContent?.trim() ||
         primaryLink?.textContent?.trim() ||
@@ -384,9 +436,6 @@
       );
 
       target.addEventListener('click', handler, { capture: false });
-      target.addEventListener('pointerup', (event) => {
-        event.preventDefault();
-      });
     });
   }
 
