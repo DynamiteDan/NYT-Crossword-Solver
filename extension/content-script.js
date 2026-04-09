@@ -1,7 +1,8 @@
 /* global chrome */
 (() => {
-  const CLUE_ITEM_SELECTOR = '[data-test="clue"], li[class*="Clue-li"]';
-  const CLUE_LABEL_SELECTOR = '[data-test="clue-label"], .Clue-label';
+  const CLUE_ITEM_SELECTOR = '[data-test="clue"], li[class*="Clue-li"], .xwd__clue--li';
+  const CLUE_LABEL_SELECTOR = '[data-test="clue-label"], .Clue-label, .xwd__clue--label';
+  const CLUE_TEXT_SELECTOR = '[data-test="clue-text"], .Clue-text, .xwd__clue--text';
   const LISTENER_FLAG = 'nytcsListener';
   const STYLE_ID = 'nytcs-styles';
   const EXTERNAL_HOST = 'https://nytcrosswordanswers.org';
@@ -70,16 +71,19 @@
   }
 
   function derivePuzzleDate() {
-    const embeddedDate = window.gameData?.puzzleData?.date;
-    if (embeddedDate) {
-      const parsed = parseIsoDate(embeddedDate);
-      if (parsed) {
-        return parsed;
-      }
+    // Tier 1: Extract date from inline <script> tags containing window.gameData.
+    // Content scripts can't access page JS variables directly (isolated world),
+    // but they CAN read <script> tag textContent from the DOM.
+    const scriptDate = extractDateFromScriptTags();
+    if (scriptDate) {
+      console.debug('[NYT Answer Helper] Date from script tags:', scriptDate);
+      return scriptDate;
     }
 
-    const pathMatch = window.location.pathname.match(/\/(\d{4})\/(\d{2})\/(\d{2})(?:\/)?$/);
+    // Tier 2: Extract date from URL path (e.g., /crosswords/game/daily/2026/04/09).
+    const pathMatch = window.location.pathname.match(/\/(\d{4})\/(\d{2})\/(\d{2})/);
     if (pathMatch) {
+      console.debug('[NYT Answer Helper] Date from URL path.');
       return {
         year: Number(pathMatch[1]),
         month: Number(pathMatch[2]),
@@ -87,19 +91,41 @@
       };
     }
 
-    return null;
+    // Tier 3: Fall back to today's date. The daily puzzle at /crosswords/game/daily
+    // is always today's puzzle, so this is a safe default.
+    const now = new Date();
+    console.debug('[NYT Answer Helper] Falling back to today\'s date.');
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      day: now.getDate(),
+    };
   }
 
-  function parseIsoDate(value) {
-    if (typeof value !== 'string') {
-      return null;
+  function extractDateFromScriptTags() {
+    const scripts = document.querySelectorAll('script:not([src])');
+    for (const script of scripts) {
+      const text = script.textContent || '';
+      // Look for gameData assignment containing a filename like "daily/2023-09-08"
+      const filenameMatch = text.match(/gameData\s*=\s*\{[^}]*"filename"\s*:\s*"[^"]*\/(\d{4})-(\d{2})-(\d{2})"/);
+      if (filenameMatch) {
+        return {
+          year: Number(filenameMatch[1]),
+          month: Number(filenameMatch[2]),
+          day: Number(filenameMatch[3]),
+        };
+      }
+      // Also try puzzleData.date or date property directly
+      const dateMatch = text.match(/["']date["']\s*:\s*["'](\d{4})-(\d{2})-(\d{2})["']/);
+      if (dateMatch) {
+        return {
+          year: Number(dateMatch[1]),
+          month: Number(dateMatch[2]),
+          day: Number(dateMatch[3]),
+        };
+      }
     }
-    const parts = value.split('-').map((segment) => Number.parseInt(segment, 10));
-    if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
-      return null;
-    }
-
-    return { year: parts[0], month: parts[1], day: parts[2] };
+    return null;
   }
 
   function formatDateSlug(parts) {
@@ -196,6 +222,7 @@
       banner.style.boxShadow = '0 2px 8px rgba(0,0,0,0.25)';
 
       const container =
+        document.querySelector('.xwd__clue-list--wrapper') ||
         document.querySelector('[data-test="clue-list"]') ||
         document.querySelector('[data-test="clue-list-container"]') ||
         document.body;
@@ -276,17 +303,57 @@
     let sanitized = label.toString().trim().toUpperCase();
     sanitized = sanitized.replace(/\s+/g, '');
 
-    if (/[AD]$/.test(sanitized)) {
+    // If it already ends with a direction letter (e.g., "17A", "42D"), use as-is.
+    if (/^\d+[AD]$/.test(sanitized)) {
       return sanitized;
     }
 
-    const direction =
-      clueElement?.getAttribute('data-direction') ||
-      clueElement?.dataset?.direction ||
-      clueElement?.closest('[data-direction]')?.getAttribute('data-direction');
-
-    const suffix = direction?.toLowerCase().startsWith('d') ? 'D' : 'A';
+    const suffix = inferDirection(clueElement);
     return `${sanitized}${suffix}`;
+  }
+
+  function inferDirection(clueElement) {
+    if (!clueElement) {
+      return 'A';
+    }
+
+    // Strategy 1: Check data-direction attributes (backward compat).
+    const dirAttr =
+      clueElement.getAttribute('data-direction') ||
+      clueElement.dataset?.direction ||
+      clueElement.closest('[data-direction]')?.getAttribute('data-direction');
+    if (dirAttr) {
+      return dirAttr.toLowerCase().startsWith('d') ? 'D' : 'A';
+    }
+
+    // Strategy 2: Walk up to .xwd__clue-list--wrapper and read section title.
+    const wrapper = clueElement.closest('.xwd__clue-list--wrapper, [class*="ClueList"]');
+    if (wrapper) {
+      const title = wrapper.querySelector('.xwd__clue-list--title, [class*="ClueList-title"]');
+      if (title && /down/i.test(title.textContent)) {
+        return 'D';
+      }
+      if (title) {
+        return 'A';
+      }
+    }
+
+    // Strategy 3: Walk up looking for any heading/label containing "down" or "across".
+    let parent = clueElement.parentElement;
+    while (parent && parent !== document.body) {
+      const heading = parent.querySelector('h2, h3, h4, [class*="title"], [class*="Title"]');
+      if (heading) {
+        if (/down/i.test(heading.textContent)) {
+          return 'D';
+        }
+        if (/across/i.test(heading.textContent)) {
+          return 'A';
+        }
+      }
+      parent = parent.parentElement;
+    }
+
+    return 'A';
   }
 
   function showAnswerPanel({ clueKey, rawAnswer, clueTitle }) {
@@ -354,21 +421,11 @@
 
   function attachClueListener(clueElement, clueKey, rawAnswer) {
     console.debug(`[NYT Answer Helper] Attaching listener for ${clueKey}.`);
-    const targets = [];
-    const primaryLink = clueElement.querySelector('a, button');
-    if (primaryLink) {
-      targets.push(primaryLink);
-    }
-    targets.push(clueElement);
 
-    const handler = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      const clueTitle =
-        clueElement.textContent?.trim() ||
-        primaryLink?.textContent?.trim() ||
-        '';
+    const handler = () => {
+      // Extract just the clue text (not the number) for a cleaner title.
+      const textNode = clueElement.querySelector(CLUE_TEXT_SELECTOR);
+      const clueTitle = textNode?.textContent?.trim() || clueElement.textContent?.trim() || '';
 
       console.debug(`[NYT Answer Helper] Showing answer panel for ${clueKey}.`);
       showAnswerPanel({
@@ -378,16 +435,9 @@
       });
     };
 
-    targets.forEach((target, index) => {
-      console.debug(
-        `[NYT Answer Helper] Binding event listeners to target ${index + 1} for ${clueKey}.`
-      );
-
-      target.addEventListener('click', handler, { capture: false });
-      target.addEventListener('pointerup', (event) => {
-        event.preventDefault();
-      });
-    });
+    // Don't preventDefault/stopPropagation — let NYT handle the click normally
+    // (selecting the clue in the grid) while we also show the answer panel.
+    clueElement.addEventListener('click', handler, { capture: false });
   }
 
   function injectStyles() {
