@@ -2,7 +2,6 @@
 (() => {
   const CLUE_ITEM_SELECTOR = '[data-test="clue"], li[class*="Clue-li"], .xwd__clue--li';
   const CLUE_LABEL_SELECTOR = '[data-test="clue-label"], .Clue-label, .xwd__clue--label';
-  const CLUE_TEXT_SELECTOR = '[data-test="clue-text"], .Clue-text, .xwd__clue--text';
   const LISTENER_FLAG = 'nytcsListener';
   const STYLE_ID = 'nytcs-styles';
   const EXTERNAL_HOST = 'https://nytcrosswordanswers.org';
@@ -11,10 +10,8 @@
   const FALLBACK_NOTICE_ID = 'nytcs-fallback-notice';
   const PANEL_ID = 'nytcs-answer-panel';
   const PANEL_VISIBLE_ATTR = 'data-visible';
-  const PANEL_ANSWER_ATTR = 'data-clue-key';
 
   let answerPanel = null;
-  let answerMapRef = {};
 
   init();
 
@@ -35,7 +32,6 @@
       }
 
       const answerMap = await buildAnswerMapFromExternal(slug);
-      answerMapRef = answerMap;
       if (!hasEntries(answerMap)) {
         showFallbackNotice(
           `NYT Answer Helper: No answers were found on nytcrosswordanswers.org for ${slug}.`
@@ -44,15 +40,7 @@
       }
 
       injectStyles();
-      const panel = ensureAnswerPanel(true);
-      if (panel) {
-        panel.querySelector('[data-role="clue-key"]').textContent = 'READY';
-        panel.querySelector('[data-role="clue-text"]').textContent =
-          'Click any clue to reveal its answer below.';
-        panel.querySelector('[data-role="answer-text"]').textContent = '—';
-        panel.setAttribute(PANEL_VISIBLE_ATTR, 'true');
-        console.info('[NYT Answer Helper] Answer panel initialized.');
-      }
+      ensureAnswerPanel(true);
       enhanceClues(answerMap);
       console.info(
         `[NYT Answer Helper] Ready — answers loaded exclusively from nytcrosswordanswers.org (${slug}).`
@@ -356,15 +344,9 @@
     return 'A';
   }
 
-  function showAnswerPanel({ clueKey, rawAnswer, clueTitle }) {
+  function showAnswerPanel({ rawAnswer }) {
     const panel = ensureAnswerPanel();
-    const formatted = formatAnswer(rawAnswer);
-
-    panel.querySelector('[data-role="clue-key"]').textContent = clueKey;
-    panel.querySelector('[data-role="clue-text"]').textContent = clueTitle || '';
-    panel.querySelector('[data-role="answer-text"]').textContent = formatted;
-
-    panel.setAttribute(PANEL_ANSWER_ATTR, clueKey);
+    panel.textContent = rawAnswer.trim();
     panel.setAttribute(PANEL_VISIBLE_ATTR, 'true');
   }
 
@@ -380,27 +362,9 @@
         answerPanel.parentElement.removeChild(answerPanel);
       }
 
-      answerPanel = document.createElement('section');
+      answerPanel = document.createElement('div');
       answerPanel.id = PANEL_ID;
-      answerPanel.setAttribute('role', 'dialog');
       answerPanel.setAttribute('aria-live', 'polite');
-      answerPanel.innerHTML = `
-        <header class="nytcs-panel-header">
-          <div>
-            <p class="nytcs-panel-clue">
-              <span data-role="clue-key"></span>
-              <span data-role="clue-text"></span>
-            </p>
-            <p class="nytcs-panel-cta">Click another clue to update, or press Esc to hide.</p>
-          </div>
-          <button type="button" class="nytcs-panel-close" aria-label="Hide answer panel">&times;</button>
-        </header>
-        <div class="nytcs-panel-body">
-          <span class="nytcs-panel-answer" data-role="answer-text"></span>
-        </div>
-      `;
-
-      answerPanel.querySelector('.nytcs-panel-close').addEventListener('click', hideAnswerPanel);
 
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
@@ -409,30 +373,17 @@
       });
 
       document.body.appendChild(answerPanel);
-      console.debug('[NYT Answer Helper] Answer panel created/updated.');
     }
 
     return answerPanel;
-  }
-
-  function formatAnswer(answer) {
-    return answer.trim();
   }
 
   function attachClueListener(clueElement, clueKey, rawAnswer) {
     console.debug(`[NYT Answer Helper] Attaching listener for ${clueKey}.`);
 
     const handler = () => {
-      // Extract just the clue text (not the number) for a cleaner title.
-      const textNode = clueElement.querySelector(CLUE_TEXT_SELECTOR);
-      const clueTitle = textNode?.textContent?.trim() || clueElement.textContent?.trim() || '';
-
       console.debug(`[NYT Answer Helper] Showing answer panel for ${clueKey}.`);
-      showAnswerPanel({
-        clueKey,
-        rawAnswer,
-        clueTitle,
-      });
+      showAnswerPanel({ rawAnswer });
     };
 
     // Don't preventDefault/stopPropagation — let NYT handle the click normally
@@ -450,88 +401,22 @@
     style.textContent = `
       #${PANEL_ID} {
         position: fixed;
-        right: 24px;
-        bottom: 24px;
-        width: min(360px, calc(100vw - 32px));
-        background: #0b1228;
-        color: #ffffff;
-        border-radius: 14px;
-        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
-        padding: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        font-family: 'NYTFranklin', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-        opacity: 0;
-        transform: translateY(12px);
-        transition: opacity 140ms ease, transform 140ms ease;
+        left: 12px;
+        bottom: 12px;
+        font: 11pt sans-serif;
+        color: #222;
+        background: rgba(255, 255, 255, 0.92);
+        padding: 4px 10px;
+        border-radius: 4px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
         z-index: 2147483647;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 100ms ease;
       }
 
       #${PANEL_ID}[${PANEL_VISIBLE_ATTR}="true"] {
         opacity: 1;
-        transform: translateY(0);
-      }
-
-      #${PANEL_ID} .nytcs-panel-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      #${PANEL_ID} .nytcs-panel-clue {
-        font-size: 0.95rem;
-        margin: 0;
-        color: rgba(255, 255, 255, 0.85);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      #${PANEL_ID} .nytcs-panel-cta {
-        font-size: 0.75rem;
-        margin: 2px 0 0;
-        color: rgba(255, 255, 255, 0.6);
-      }
-
-      #${PANEL_ID} .nytcs-panel-body {
-        margin-top: 18px;
-        font-size: 1.8rem;
-        letter-spacing: 0.18em;
-        font-weight: 700;
-        overflow-wrap: anywhere;
-      }
-
-      #${PANEL_ID} .nytcs-panel-answer {
-        font-feature-settings: 'tnum';
-      }
-
-      #${PANEL_ID} .nytcs-panel-close {
-        border: none;
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
-        width: 30px;
-        height: 30px;
-        border-radius: 999px;
-        font-size: 1.2rem;
-        cursor: pointer;
-        line-height: 1;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        transition: background 120ms ease, transform 120ms ease;
-      }
-
-      #${PANEL_ID} .nytcs-panel-close:hover {
-        background: rgba(255, 255, 255, 0.24);
-        transform: scale(1.05);
-      }
-
-      #${PANEL_ID} [data-role="clue-key"] {
-        font-weight: 700;
-        margin-right: 6px;
-      }
-
-      #${PANEL_ID} [data-role="clue-text"] {
-        font-weight: 400;
       }
     `;
 
