@@ -42,6 +42,7 @@
       injectStyles();
       ensureAnswerPanel(true);
       enhanceClues(answerMap);
+      watchGridClicks(answerMap);
       console.info(
         `[NYT Answer Helper] Ready — answers loaded exclusively from nytcrosswordanswers.org (${slug}).`
       );
@@ -226,6 +227,29 @@
 
     const observer = new MutationObserver(() => annotateExistingClues(answerMap));
     observer.observe(document.body, { subtree: true, childList: true });
+  }
+
+  function watchGridClicks(answerMap) {
+    document.addEventListener('click', (event) => {
+      // Skip if click was on a clue element (already handled by clue listeners).
+      if (event.target.closest(CLUE_ITEM_SELECTOR)) return;
+
+      // Let NYT update the selected clue first, then read it.
+      requestAnimationFrame(() => {
+        const selectedClue = document.querySelector(
+          '.xwd__clue--selected, [class*="Clue-li--selected"]'
+        );
+        if (!selectedClue) return;
+
+        const clueKey = deriveClueKey(selectedClue);
+        if (!clueKey) return;
+
+        const answer = answerMap[clueKey];
+        if (answer) {
+          showAnswerPanel({ rawAnswer: answer });
+        }
+      });
+    });
   }
 
   function annotateExistingClues(answerMap) {
