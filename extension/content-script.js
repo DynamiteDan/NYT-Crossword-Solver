@@ -445,7 +445,7 @@
         left: 12px;
         bottom: 12px;
         font: 11pt sans-serif;
-        color: rgba(0, 0, 0, 0.12);
+        color: rgba(0, 0, 0, 0.06);
         background: none;
         padding: 4px 10px;
         border-radius: 4px;
