@@ -42,7 +42,7 @@
       injectStyles();
       ensureAnswerPanel(true);
       enhanceClues(answerMap);
-      watchGridClicks(answerMap);
+      watchClueBar(answerMap);
       console.info(
         `[NYT Answer Helper] Ready — answers loaded exclusively from nytcrosswordanswers.org (${slug}).`
       );
@@ -229,27 +229,44 @@
     observer.observe(document.body, { subtree: true, childList: true });
   }
 
-  function watchGridClicks(answerMap) {
-    document.addEventListener('click', (event) => {
-      // Skip if click was on a clue element (already handled by clue listeners).
-      if (event.target.closest(CLUE_ITEM_SELECTOR)) return;
-
-      // Let NYT update the selected clue first, then read it.
-      requestAnimationFrame(() => {
-        const selectedClue = document.querySelector(
-          '.xwd__clue--selected, [class*="Clue-li--selected"]'
-        );
-        if (!selectedClue) return;
-
-        const clueKey = deriveClueKey(selectedClue);
-        if (!clueKey) return;
-
+  function watchClueBar(answerMap) {
+    // The clue bar (.xwd__clue-bar-desktop--number) always shows the
+    // currently-selected clue label, e.g. "36A" or "5D", regardless of
+    // whether the user clicked a grid cell, a sidebar clue, or used the
+    // keyboard.  Observe it for text changes and show the answer.
+    function attach(numberEl) {
+      const show = () => {
+        const raw = (numberEl.textContent || '').trim();       // e.g. "36A"
+        const m = raw.match(/^(\d+)\s*([AaDd])/);
+        if (!m) return;
+        const clueKey = `${m[1]}${m[2].toUpperCase()}`;       // "36A"
         const answer = answerMap[clueKey];
-        if (answer) {
-          showAnswerPanel({ rawAnswer: answer });
-        }
-      });
+        if (answer) showAnswerPanel({ rawAnswer: answer });
+      };
+
+      // Show immediately for current selection.
+      show();
+
+      // Re-show whenever the label text changes.
+      const obs = new MutationObserver(show);
+      obs.observe(numberEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    const existing = document.querySelector('.xwd__clue-bar-desktop--number');
+    if (existing) {
+      attach(existing);
+      return;
+    }
+
+    // If the clue bar hasn't rendered yet, wait for it.
+    const wait = new MutationObserver(() => {
+      const el = document.querySelector('.xwd__clue-bar-desktop--number');
+      if (el) {
+        wait.disconnect();
+        attach(el);
+      }
     });
+    wait.observe(document.body, { childList: true, subtree: true });
   }
 
   function annotateExistingClues(answerMap) {
