@@ -445,11 +445,10 @@
         left: 12px;
         bottom: 12px;
         font: 11pt sans-serif;
-        color: #222;
-        background: rgba(255, 255, 255, 0.92);
+        color: rgba(0, 0, 0, 0.12);
+        background: none;
         padding: 4px 10px;
         border-radius: 4px;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
         z-index: 2147483647;
         pointer-events: none;
         opacity: 0;
