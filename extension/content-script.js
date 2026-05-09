@@ -60,13 +60,19 @@
   }
 
   function derivePuzzleDate() {
-    // Tier 1: Extract date from inline <script> tags containing window.gameData.
-    // Content scripts can't access page JS variables directly (isolated world),
-    // but they CAN read <script> tag textContent from the DOM.
-    const scriptDate = extractDateFromScriptTags();
-    if (scriptDate) {
-      console.debug('[NYT Answer Helper] Date from script tags:', scriptDate);
-      return scriptDate;
+    // Tier 1: Read the date string shown in the puzzle header, e.g.
+    // "Saturday, May 9, 2026".
+    const dateDiv = document.querySelector('.xwd__details--date');
+    if (dateDiv) {
+      const parsed = new Date(dateDiv.textContent.trim());
+      if (!isNaN(parsed)) {
+        console.debug('[NYT Answer Helper] Date from .xwd__details--date div.');
+        return {
+          year: parsed.getFullYear(),
+          month: parsed.getMonth() + 1,
+          day: parsed.getDate(),
+        };
+      }
     }
 
     // Tier 2: Extract date from URL path (e.g., /crosswords/game/daily/2026/04/09).
@@ -89,32 +95,6 @@
       month: now.getMonth() + 1,
       day: now.getDate(),
     };
-  }
-
-  function extractDateFromScriptTags() {
-    const scripts = document.querySelectorAll('script:not([src])');
-    for (const script of scripts) {
-      const text = script.textContent || '';
-      // Look for gameData assignment containing a filename like "daily/2023-09-08"
-      const filenameMatch = text.match(/gameData\s*=\s*\{[^}]*"filename"\s*:\s*"[^"]*\/(\d{4})-(\d{2})-(\d{2})"/);
-      if (filenameMatch) {
-        return {
-          year: Number(filenameMatch[1]),
-          month: Number(filenameMatch[2]),
-          day: Number(filenameMatch[3]),
-        };
-      }
-      // Also try puzzleData.date or date property directly
-      const dateMatch = text.match(/["']date["']\s*:\s*["'](\d{4})-(\d{2})-(\d{2})["']/);
-      if (dateMatch) {
-        return {
-          year: Number(dateMatch[1]),
-          month: Number(dateMatch[2]),
-          day: Number(dateMatch[3]),
-        };
-      }
-    }
-    return null;
   }
 
   function formatDateSlug(parts) {
